@@ -6,9 +6,11 @@ import openai
 import json
 
 # -----------------------------
-# OPENAI API KEY
+# OPENAI CLIENT
 # -----------------------------
-# In Streamlit secrets: [openai] api_key="sk-XXXX"
+# Make sure your Streamlit secrets contains:
+# [openai]
+# api_key = "sk-XXXX"
 openai.api_key = st.secrets["openai"]["api_key"]
 
 st.title("AI-Assisted FMEA Generator")
@@ -25,17 +27,17 @@ st.subheader("Product Requirements / Functions")
 inputs = st.text_area("Enter one requirement per line")
 
 # -----------------------------
-# TEST MATRIX COLUMNS
+# TEST MATRIX
 # -----------------------------
 test_columns = [
-    "INVESTIGATION & TESTING","VENDOR - PART","DESIGN CHANGE","DIM & WORST CASE",
-    "SIMULATION","CHARACTERIZE","CPPP","DIAGNOSTICS","FUNCTIONALITY","OOBE & INSTALL",
-    "SYSTEM TEST","SIT E2E APP","HALT","ALT","ROBUSTNESS","REGS EMC","REGSSAFETY",
-    "USABILITY","SW-FW TESTS","MFG TESTS","MAINTENANCE","SERVICEABILITY"
+"INVESTIGATION & TESTING","VENDOR - PART","DESIGN CHANGE","DIM & WORST CASE",
+"SIMULATION","CHARACTERIZE","CPPP","DIAGNOSTICS","FUNCTIONALITY","OOBE & INSTALL",
+"SYSTEM TEST","SIT E2E APP","HALT","ALT","ROBUSTNESS","REGS EMC","REGSSAFETY",
+"USABILITY","SW-FW TESTS","MFG TESTS","MAINTENANCE","SERVICEABILITY"
 ]
 
 # -----------------------------
-# AI GENERATION FUNCTION
+# AI GENERATION
 # -----------------------------
 def generate_fmea_from_requirements(object_name, inputs_text):
     requirements = [r.strip() for r in inputs_text.split("\n") if r.strip()]
@@ -53,8 +55,7 @@ Generate at least 5 realistic failure modes.
 For each failure return JSON with:
 Failure Scenario, Part, Failure Mode, End Effects, Causes (2-3 items),
 Current Design Controls, Recommended Actions (2-3 items),
-Owner (Mechanical, Electrical, Reliability, Quality, Manufacturing, Firmware/Software, UX/Human Factors),
-Execution Phase (Concept, Design, Prototype, Validation, Production, Field),
+Owner, Execution Phase,
 Severity (1-10), Occurrence (1-10), Detectability (1-10),
 RPN2 after mitigation, recommended test strategies (from the list below),
 1-2 reference links.
@@ -120,7 +121,6 @@ Return ONLY JSON array like:
                 "RPN2 (Post-Action)": f.get("RPN2","")
             }
 
-            # Fill test matrix columns
             recommended_tests = f.get("tests",[])
             for col in test_columns:
                 row[col] = "X" if col in recommended_tests else ""
@@ -149,7 +149,6 @@ if "df" in st.session_state:
     st.subheader("Editable FMEA Table")
     edited_df = st.data_editor(st.session_state.df, use_container_width=True)
 
-    # Live calculations
     edited_df["RPN"] = edited_df["Severity (S)"] * edited_df["Occurrence (O)"] * edited_df["Detectability (D)"]
     edited_df["Priority"] = edited_df["RPN"] * edited_df["Cost"]
     st.session_state.df = edited_df
