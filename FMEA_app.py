@@ -6,13 +6,13 @@ import openai
 import json
 
 # -----------------------------
-# OPENAI CLIENT
+# OPENAI API KEY
 # -----------------------------
-# Make sure your secret is set in Streamlit Cloud:
-# [openai]
-# api_key = "sk-XXXXXXXXXXXXXXXXXXXX"
 openai.api_key = st.secrets["openai"]["api_key"]
 
+# -----------------------------
+# APP TITLE
+# -----------------------------
 st.title("AI-Assisted FMEA Generator")
 
 # -----------------------------
@@ -30,32 +30,14 @@ inputs = st.text_area("Enter one requirement per line")
 # TEST MATRIX COLUMNS
 # -----------------------------
 test_columns = [
-    "INVESTIGATION & TESTING",
-    "VENDOR - PART",
-    "DESIGN CHANGE",
-    "DIM & WORST CASE",
-    "SIMULATION",
-    "CHARACTERIZE",
-    "CPPP",
-    "DIAGNOSTICS",
-    "FUNCTIONALITY",
-    "OOBE & INSTALL",
-    "SYSTEM TEST",
-    "SIT E2E APP",
-    "HALT",
-    "ALT",
-    "ROBUSTNESS",
-    "REGS EMC",
-    "REGSSAFETY",
-    "USABILITY",
-    "SW-FW TESTS",
-    "MFG TESTS",
-    "MAINTENANCE",
-    "SERVICEABILITY"
+    "INVESTIGATION & TESTING","VENDOR - PART","DESIGN CHANGE","DIM & WORST CASE",
+    "SIMULATION","CHARACTERIZE","CPPP","DIAGNOSTICS","FUNCTIONALITY","OOBE & INSTALL",
+    "SYSTEM TEST","SIT E2E APP","HALT","ALT","ROBUSTNESS","REGS EMC","REGSSAFETY",
+    "USABILITY","SW-FW TESTS","MFG TESTS","MAINTENANCE","SERVICEABILITY"
 ]
 
 # -----------------------------
-# AI GENERATION FUNCTION
+# AI GENERATION
 # -----------------------------
 def generate_fmea_from_requirements(object_name, inputs_text):
     requirements = [r.strip() for r in inputs_text.split("\n") if r.strip()]
@@ -63,60 +45,46 @@ def generate_fmea_from_requirements(object_name, inputs_text):
 
     for req in requirements:
         prompt = f"""
-You are a senior reliability engineer performing a full FMEA.
+You are a senior reliability engineer performing FMEA.
 
 Product: {object_name}
 Function / Requirement: {req}
 
-Generate at least 10 realistic failure modes.
+Generate at least 5 realistic failure modes. For each, return JSON with:
 
-For each failure return:
+Failure Scenario, Part, Failure Mode, End Effects, Causes (list of 2-3),
+Current Design Controls, Recommended Actions (list of 2-3),
+Owner (choose: Mechanical, Electrical, Reliability, Quality, Manufacturing, Firmware/Software, UX/Human Factors),
+Execution Phase (Concept, Design, Prototype, Validation, Production, Field),
+Severity (1-10), Occurrence (1-10), Detectability (1-10),
+RPN2 after mitigation, relevant test strategies from the provided list,
+1-2 reference links.
 
-Failure Scenario
-Part
-Failure Mode
-End Effects
-Causes (2-3)
-Current Design Controls
-Recommended Actions (2-3)
-Owner (choose from: Mechanical Engineering, Electrical Engineering,
-Reliability Engineering, Quality Engineering, Manufacturing,
-Firmware/Software, UX/Human Factors)
-Execution Phase (Concept, Design, Prototype, Validation, Production, Field)
-Severity (1-10)
-Occurrence (1-10)
-Detectability (1-10)
-Estimated RPN2 after mitigation
-Recommended test strategies from the following list:
-{', '.join(test_columns)}
-Include 1-2 reference links explaining the failure risk.
-
-Return ONLY JSON like:
+Return ONLY valid JSON array, like:
 [
-{{
-"Failure Scenario":"",
-"Part":"",
-"Failure Mode":"",
-"End Effects":"",
-"Causes":["",""],
-"Controls":"",
-"Actions":["",""],
-"Owner":"Mechanical Engineering",
-"Execution Phase":"Design",
-"Severity":5,
-"Occurrence":5,
-"Detectability":5,
-"RPN2":40,
-"tests":["HALT","ROBUSTNESS"],
-"References":["link"]
-}}
+  {{
+    "Failure Scenario": "",
+    "Part": "",
+    "Failure Mode": "",
+    "End Effects": "",
+    "Causes": ["",""],
+    "Controls": "",
+    "Actions": ["",""],
+    "Owner": "Mechanical",
+    "Execution Phase": "Design",
+    "Severity": 5,
+    "Occurrence": 5,
+    "Detectability": 5,
+    "RPN2": 40,
+    "tests": ["HALT","ROBUSTNESS"],
+    "References": ["link"]
+  }}
 ]
 """
-
         try:
-            response = openai.ChatCompletion.create(
+            response = openai.chat.completions.create(
                 model="gpt-4.1-mini",
-                messages=[{"role":"user","content":prompt}],
+                messages=[{"role":"user","content": prompt}],
                 temperature=0.2
             )
             text = response.choices[0].message.content
@@ -126,9 +94,9 @@ Return ONLY JSON like:
             continue
 
         for f in failures:
-            S = f.get("Severity", 5)
-            O = f.get("Occurrence", 5)
-            D = f.get("Detectability", 5)
+            S = f.get("Severity",5)
+            O = f.get("Occurrence",5)
+            D = f.get("Detectability",5)
             cost = 1
             RPN = S * O * D
 
@@ -145,7 +113,7 @@ Return ONLY JSON like:
                 "Detectability (D)": D,
                 "RPN": RPN,
                 "Cost": cost,
-                "Priority": RPN*cost,
+                "Priority": RPN * cost,
                 "Recommended Actions": ", ".join(f.get("Actions",[])),
                 "Owner": f.get("Owner",""),
                 "Execution Phase": f.get("Execution Phase",""),
@@ -153,7 +121,7 @@ Return ONLY JSON like:
                 "RPN2 (Post-Action)": f.get("RPN2","")
             }
 
-            # Fill test matrix
+            # Fill test matrix columns
             recommended_tests = f.get("tests",[])
             for col in test_columns:
                 row[col] = "X" if col in recommended_tests else ""
@@ -166,7 +134,7 @@ Return ONLY JSON like:
 # GENERATE BUTTON
 # -----------------------------
 if st.button("Generate FMEA"):
-    if object_name.strip() == "":
+    if object_name.strip()=="":
         st.warning("Enter Object Name")
     else:
         df = generate_fmea_from_requirements(object_name, inputs)
@@ -182,14 +150,9 @@ if "df" in st.session_state:
     st.subheader("Editable FMEA Table")
     edited_df = st.data_editor(st.session_state.df, use_container_width=True)
 
-    # Live RPN & Priority calculations
-    edited_df["RPN"] = (
-        edited_df["Severity (S)"] *
-        edited_df["Occurrence (O)"] *
-        edited_df["Detectability (D)"]
-    )
+    # Live calculations
+    edited_df["RPN"] = edited_df["Severity (S)"] * edited_df["Occurrence (O)"] * edited_df["Detectability (D)"]
     edited_df["Priority"] = edited_df["RPN"] * edited_df["Cost"]
-
     st.session_state.df = edited_df
 
     st.subheader("Updated Calculations")
@@ -208,7 +171,8 @@ if "df" in st.session_state:
     for _, row in edited_df.iterrows():
         ws.append(list(row))
 
-    col_map = {name: idx + 1 for idx, name in enumerate(headers)}
+    col_map = {name: idx+1 for idx,name in enumerate(headers)}
+
     for i in range(2, len(edited_df)+2):
         S = col_map["Severity (S)"]
         O = col_map["Occurrence (O)"]
@@ -222,7 +186,6 @@ if "df" in st.session_state:
 
     output = BytesIO()
     wb.save(output)
-
     st.download_button(
         "Download Excel File",
         output.getvalue(),
