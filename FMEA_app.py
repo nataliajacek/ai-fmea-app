@@ -20,11 +20,12 @@ st.subheader("Project Information")
 
 user_name = st.text_input("1. User Name")
 object_name = st.text_input("2. Product / Prototype Name")
+product_description = st.text_area("Product Description")  # <-- added to fix NameError
 subsystem = st.text_input("3. Subsystem to perform FMEA")
 parts_input = st.text_area("4. List of Parts / Components (one per line)")
 functions_input = st.text_area("5. Functions (one per line)")
 main_specs = st.text_area("6. Main Specs / Requirements (one per line)")
-version = st.date_input("7. Version / Date")  # lets user pick day/month/year
+version = st.date_input("7. Version / Date")
 
 # -----------------------------
 # TEST MATRIX
