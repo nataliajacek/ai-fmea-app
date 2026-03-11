@@ -11,7 +11,7 @@ import json
 # OPENAI CLIENT
 # -----------------------------
 client = OpenAI(api_key=st.secrets["openai"]["api_key"])
-st.title("AI-Assisted FMEA Generator")
+st.title("AI-Assisted FMEA Generator – Powered by GPT-4.1-mini")
 
 # -----------------------------
 # PROJECT INFO
@@ -250,3 +250,4 @@ if "df" in st.session_state:
         file_name=f"FMEA_{object_name}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
+
