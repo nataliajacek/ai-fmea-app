@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 from io import BytesIO
@@ -11,21 +10,21 @@ import json
 # OPENAI CLIENT
 # -----------------------------
 client = OpenAI(api_key=st.secrets["openai"]["api_key"])
+
 st.title("AI-Assisted FMEA Generator – Powered by GPT-4.1-mini")
 
 # -----------------------------
-# PROJECT INFO
+# RESTRUCTURED INPUTS
 # -----------------------------
-product_description = st.text_input("Product Description")
-user_name = st.text_input("User Name")
-version = st.text_input("Version")
-object_name = st.text_input("Product / Prototype Name")
+st.subheader("Project Information")
 
-st.subheader("Product Requirements / Functions")
-inputs = st.text_area("Enter one requirement per line")
-
-st.subheader("Product Parts / Components")
-parts_input = st.text_area("Enter one part/component per line")
+user_name = st.text_input("1. User Name")
+object_name = st.text_input("2. Product / Prototype Name")
+subsystem = st.text_input("3. Subsystem to perform FMEA")
+parts_input = st.text_area("4. List of Parts / Components (one per line)")
+functions_input = st.text_area("5. Functions (one per line)")
+main_specs = st.text_area("6. Main Specs / Requirements (one per line)")
+version = st.date_input("7. Version / Date")  # lets user pick day/month/year
 
 # -----------------------------
 # TEST MATRIX
@@ -68,21 +67,25 @@ cost_map = {
 # -----------------------------
 # AI GENERATION FUNCTION
 # -----------------------------
-def generate_fmea(description, object_name, parts_list, requirements_text):
-    requirements = [r.strip() for r in requirements_text.split("\n") if r.strip()]
+def generate_fmea(description, object_name, parts_list, functions_text, main_specs_text):
+    functions = [r.strip() for r in functions_text.split("\n") if r.strip()]
+    requirements = [r.strip() for r in main_specs_text.split("\n") if r.strip()]
     parts = [p.strip() for p in parts_list.split("\n") if p.strip()]
     rows = []
 
-    for req in requirements:
-        prompt = f"""
+    for func in functions:
+        for req in requirements:
+            prompt = f"""
 You are a senior reliability engineer performing a full FMEA.
 
 Product Name: {object_name}
 Product Description: {description}
-Function / Requirement: {req}
+Subsystem: {subsystem}
+Function: {func}
+Requirement: {req}
 Parts: {', '.join(parts)}
 
-- Generate at least 8-10 failure modes per requirement.
+- Generate at least 8-10 failure modes per function/requirement.
 - Fill all columns including all test columns.
 - For each failure, provide:
   - Failure Scenario
@@ -125,55 +128,56 @@ Return only valid JSON in this format:
 }}
 ]
 """
-        try:
-            with st.spinner(f"Generating FMEA for requirement: {req}..."):
-                response = client.chat.completions.create(
-                    model="gpt-4.1-mini",
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=0.3
-                )
-            text = response.choices[0].message.content
-            failures = json.loads(text)
-        except Exception as e:
-            st.error(f"AI failed for requirement '{req}': {e}")
-            continue
+            try:
+                with st.spinner(f"Generating FMEA for function: {func} / requirement: {req}..."):
+                    response = client.chat.completions.create(
+                        model="gpt-4.1-mini",
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=0.3
+                    )
+                text = response.choices[0].message.content
+                failures = json.loads(text)
+            except Exception as e:
+                st.error(f"AI failed for function '{func}' / requirement '{req}': {e}")
+                continue
 
-        for f in failures:
-            causes_list = f.get("Causes", [""])
-            for cause in causes_list:
-                S = min(max(int(f.get("Severity", 3)), 1), 5)
-                O = min(max(int(f.get("Occurrence", 2)), 1), 4)
-                D = min(max(int(f.get("Detectability", 2)), 1), 3)
-                cost_text = f.get("Estimated Cost", "Medium (1)")
-                cost_value = float(cost_text.split("(")[1].replace(")", ""))
+            for f in failures:
+                causes_list = f.get("Causes", [""])
+                for cause in causes_list:
+                    S = min(max(int(f.get("Severity", 3)), 1), 5)
+                    O = min(max(int(f.get("Occurrence", 2)), 1), 4)
+                    D = min(max(int(f.get("Detectability", 2)), 1), 3)
+                    cost_text = f.get("Estimated Cost", "Medium (1)")
+                    cost_value = float(cost_text.split("(")[1].replace(")", ""))
 
-                RPN = S * O * D
-                row = {
-                    "Failure Scenario": f.get("Failure Scenario", ""),
-                    "Function": req,
-                    "Part": f.get("Part", ""),
-                    "Failure Mode": f.get("Failure Mode", ""),
-                    "End Effects of Failure": f.get("End Effects", ""),
-                    "Causes": cause,
-                    "Current Design Controls": f.get("Controls", ""),
-                    "Severity (S)": S,
-                    "Occurrence (O)": O,
-                    "Detectability (D)": D,
-                    "RPN": RPN,
-                    "Priority": RPN * cost_value,
-                    "Recommended Actions": ", ".join(f.get("Actions", [])),
-                    "Owner": f.get("Owner", ""),
-                    "Execution Phase": f.get("Execution Phase", ""),
-                    "Reference Links": ", ".join(f.get("References", [])),
-                    "RPN2 (Post-Action)": f.get("RPN2", ""),
-                    "Estimated Cost": cost_text
-                }
-                # Fill test columns
-                recommended_tests = f.get("tests", [])
-                for col in test_columns:
-                    row[col] = "X" if col in recommended_tests else ""
+                    RPN = S * O * D
+                    row = {
+                        "Failure Scenario": f.get("Failure Scenario", ""),
+                        "Function": func,
+                        "Requirement": req,
+                        "Part": f.get("Part", ""),
+                        "Failure Mode": f.get("Failure Mode", ""),
+                        "End Effects of Failure": f.get("End Effects", ""),
+                        "Causes": cause,
+                        "Current Design Controls": f.get("Controls", ""),
+                        "Severity (S)": S,
+                        "Occurrence (O)": O,
+                        "Detectability (D)": D,
+                        "RPN": RPN,
+                        "Priority": RPN * cost_value,
+                        "Recommended Actions": ", ".join(f.get("Actions", [])),
+                        "Owner": f.get("Owner", ""),
+                        "Execution Phase": f.get("Execution Phase", ""),
+                        "Reference Links": ", ".join(f.get("References", [])),
+                        "RPN2 (Post-Action)": f.get("RPN2", ""),
+                        "Estimated Cost": cost_text
+                    }
+                    # Fill test columns
+                    recommended_tests = f.get("tests", [])
+                    for col in test_columns:
+                        row[col] = "X" if col in recommended_tests else ""
 
-                rows.append(row)
+                    rows.append(row)
 
     return pd.DataFrame(rows)
 
@@ -184,9 +188,9 @@ if st.button("Generate FMEA"):
     if object_name.strip() == "":
         st.warning("Enter Product / Prototype Name")
     else:
-        df = generate_fmea(product_description, object_name, parts_input, inputs)
+        df = generate_fmea(product_description, object_name, parts_input, functions_input, main_specs)
         if df.empty:
-            st.warning("Enter at least one requirement")
+            st.warning("Enter at least one function and requirement")
         else:
             st.session_state.df = df
 
@@ -205,9 +209,6 @@ if "df" in st.session_state:
     )
     edited_df["Priority"] = edited_df["RPN"] * edited_df["Estimated Cost"].apply(lambda x: float(x.split("(")[1].replace(")","")))
     st.session_state.df = edited_df
-
-    st.subheader("Updated Calculations")
-    st.dataframe(edited_df)
 
     # -----------------------------
     # EXCEL EXPORT WITH HORIZONTAL HEADERS
@@ -250,4 +251,3 @@ if "df" in st.session_state:
         file_name=f"FMEA_{object_name}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
-
