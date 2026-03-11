@@ -188,7 +188,14 @@ if st.button("Generate FMEA"):
     if object_name.strip() == "":
         st.warning("Enter Product / Prototype Name")
     else:
-        df = generate_fmea(product_description, object_name, parts_input, functions_input, main_specs)
+        # Safe default for all inputs
+        product_description_text = product_description or ""
+        parts_text = parts_input or ""
+        functions_text = functions_input or ""
+        specs_text = main_specs or ""
+
+        df = generate_fmea(product_description_text, object_name, parts_text, functions_text, specs_text)
+
         if df.empty:
             st.warning("Enter at least one function and requirement")
         else:
