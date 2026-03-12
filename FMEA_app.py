@@ -74,71 +74,90 @@ cost_map = {
 }
 
 # -----------------------------
-# AI GENERATION FUNCTION
+# AI GENERATION FUNCTION WITH MISSING ITEM SUGGESTION
 # -----------------------------
-def generate_fmea(description, object_name, parts_list, functions_text, main_specs_text):
+def generate_fmea(description, object_name, parts_list, functions_text, main_specs_text, subsystem):
+    # User-provided lists
     functions = [r.strip() for r in functions_text.split("\n") if r.strip()]
     requirements = [r.strip() for r in main_specs_text.split("\n") if r.strip()]
     parts = [p.strip() for p in parts_list.split("\n") if p.strip()]
     rows = []
 
+    # ---------------------------
+    # Step 0: Ask AI for missing items
+    # ---------------------------
+    prompt_supplement = f"""
+You are a senior reliability engineer reviewing a product for FMEA.
+Product: {object_name}
+Description: {description}
+Subsystem: {subsystem}
+
+User-provided functions: {', '.join(functions) if functions else 'None'}
+User-provided requirements: {', '.join(requirements) if requirements else 'None'}
+User-provided parts: {', '.join(parts) if parts else 'None'}
+
+Please suggest any critical functions, requirements, or parts that are missing and should be included for a complete FMEA.
+Return only JSON:
+{{
+"additional_functions": ["function1", "function2"],
+"additional_requirements": ["requirement1", "requirement2"],
+"additional_parts": ["part1", "part2"]
+}}
+"""
+    try:
+        response_supplement = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=[{"role": "user", "content": prompt_supplement}],
+            temperature=0.3
+        )
+        text_supp = response_supplement.choices[0].message.content
+        supplement_data = json.loads(text_supp)
+    except Exception as e:
+        st.warning(f"Could not get AI suggestions for missing items: {e}")
+        supplement_data = {"additional_functions": [], "additional_requirements": [], "additional_parts": []}
+
+    # Append AI-suggested items
+    functions += supplement_data.get("additional_functions", [])
+    requirements += supplement_data.get("additional_requirements", [])
+    parts += supplement_data.get("additional_parts", [])
+
+    # ---------------------------
+    # Step 1: Generate FMEA rows for all functions/requirements
+    # ---------------------------
     for func in functions:
         for req in requirements:
             prompt = f"""
-You are a senior reliability engineer performing a full FMEA.
+You are a senior reliability engineer performing FMEA for:
 
-Product Name: {object_name}
-Product Description: {description}
+Product: {object_name}
+Description: {description}
 Subsystem: {subsystem}
 Function: {func}
 Requirement: {req}
 Parts: {', '.join(parts)}
 
-- Generate at least 8-10 failure modes per function/requirement.
-- Fill all columns including all test columns.
-- For each failure, provide:
-  - Failure Scenario
-  - Part (choose from parts list)
-  - Failure Mode
-  - End Effects
-  - Causes (2-3)
-  - Current Design Controls (mention detection like PWM, RPM, temperature, sensors)
-  - Recommended Actions (2-3)
-  - Owner (choose from: Mechanical, Electrical, Reliability, Quality, Manufacturing, Firmware/Software, UX)
-  - Execution Phase (Concept, Design, Prototype, Validation, Production, Field)
-  - Severity (1-5)
-  - Occurrence (1-4)
-  - Detectability (1-3)
-  - Estimated RPN2 after mitigation
-  - Recommended tests from all columns: {', '.join(test_columns)}
-  - Estimated Cost (choose Very High, High, Medium, Low and give numeric in parentheses)
-  - References (1-2 valid links about the failure risk)
+Generate realistic failure modes, filling all test columns. Include:
+- Failure Scenario
+- Part
+- Failure Mode
+- End Effects
+- Causes (2-3)
+- Current Design Controls
+- Recommended Actions
+- Owner
+- Execution Phase
+- Severity (1-5)
+- Occurrence (1-4)
+- Detectability (1-3)
+- Estimated RPN2
+- Recommended tests
+- Estimated Cost
+- References
 
-Return only valid JSON in this format:
-
-[
-{{
-"Failure Scenario": "",
-"Part": "",
-"Failure Mode": "",
-"End Effects": "",
-"Causes": ["",""],
-"Controls": "",
-"Actions": ["",""],
-"Owner": "Mechanical Engineering",
-"Execution Phase": "Design",
-"Severity": 3,
-"Occurrence": 2,
-"Detectability": 2,
-"RPN2": 12,
-"tests": ["HALT","ROBUSTNESS"],
-"Estimated Cost": "Medium (1)",
-"References": ["link"]
-}}
-]
+Return only valid JSON.
 """
             try:
-                with st.spinner(f"Generating FMEA for function: {func} / requirement: {req}..."):
+                with st.spinner(f"Generating FMEA for {func} / {req}..."):
                     response = client.chat.completions.create(
                         model="gpt-4.1-mini",
                         messages=[{"role": "user", "content": prompt}],
@@ -147,9 +166,10 @@ Return only valid JSON in this format:
                 text = response.choices[0].message.content
                 failures = json.loads(text)
             except Exception as e:
-                st.error(f"AI failed for function '{func}' / requirement '{req}': {e}")
+                st.error(f"AI failed for {func} / {req}: {e}")
                 continue
 
+            # Process failures into table
             for f in failures:
                 causes_list = f.get("Causes", [""])
                 for cause in causes_list:
@@ -158,8 +178,8 @@ Return only valid JSON in this format:
                     D = min(max(int(f.get("Detectability", 2)), 1), 3)
                     cost_text = f.get("Estimated Cost", "Medium (1)")
                     cost_value = float(cost_text.split("(")[1].replace(")", ""))
-
                     RPN = S * O * D
+
                     row = {
                         "Failure Scenario": f.get("Failure Scenario", ""),
                         "Function": func,
@@ -181,11 +201,8 @@ Return only valid JSON in this format:
                         "RPN2 (Post-Action)": f.get("RPN2", ""),
                         "Estimated Cost": cost_text
                     }
-                    # Fill test columns
-                    recommended_tests = f.get("tests", [])
                     for col in test_columns:
-                        row[col] = "X" if col in recommended_tests else ""
-
+                        row[col] = "X" if col in f.get("tests", []) else ""
                     rows.append(row)
 
     return pd.DataFrame(rows)
@@ -202,7 +219,8 @@ if st.button("Generate FMEA"):
             object_name or "",
             parts_input or "",
             functions_input or "",
-            main_specs or ""
+            main_specs or "",
+            subsystem or ""
         )
         if df.empty:
             st.warning("Enter at least one function and requirement")
@@ -235,7 +253,6 @@ if "df" in st.session_state:
     headers = list(edited_df.columns)
     ws.append(headers)
 
-    # Header styling
     default_width = 25
     header_font_size = 12
     ws.row_dimensions[1].height = 60
@@ -247,7 +264,6 @@ if "df" in st.session_state:
         cell.alignment = Alignment(horizontal="center", vertical="center")
         ws.column_dimensions[cell.column_letter].width = default_width
 
-    # Data rows with alternating colors
     fill1 = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
     fill2 = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
 
