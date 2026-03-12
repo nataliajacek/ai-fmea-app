@@ -7,260 +7,335 @@ from openai import OpenAI
 import json
 import datetime
 
-# -----------------------------
-# OPENAI CLIENT
-# -----------------------------
 client = OpenAI(api_key=st.secrets["openai"]["api_key"])
 
 st.title("AI-Assisted FMEA Generator – Powered by GPT-4.1-mini")
 
-# -----------------------------
-# INITIALIZE SESSION STATE
-# -----------------------------
+# ----------------------------
+# SESSION STATE
+# ----------------------------
+
 for key in ["user_name","product_name","product_description","subsystem","parts","functions","requirements","version"]:
     if key not in st.session_state:
         st.session_state[key] = datetime.date.today() if key=="version" else ""
 
-# -----------------------------
-# INPUT STRUCTURE
-# -----------------------------
+# ----------------------------
+# INPUTS
+# ----------------------------
+
 st.subheader("Project Information")
 
 user_name = st.text_input("1. User Name", key="user_name")
-object_name = st.text_input("2. Product / Prototype Name", key="product_name")
-product_description = st.text_area("Product Description", key="product_description")
-subsystem = st.text_input("3. Subsystem to perform FMEA", key="subsystem")
-parts_input = st.text_area("4. List of Parts / Components (one per line)", key="parts")
-functions_input = st.text_area("5. Functions (one per line)", key="functions")
-main_specs = st.text_area("6. Main Specs / Requirements (one per line)", key="requirements")
-version = st.date_input("7. Version / Date", key="version")
 
-# -----------------------------
-# TEST MATRIX
-# -----------------------------
+object_name = st.text_input("2. Product / Prototype Name", key="product_name")
+
+product_description = st.text_area("Product Description", key="product_description")
+
+subsystem = st.text_input("3. Subsystem to perform FMEA", key="subsystem")
+
+parts_input = st.text_area(
+"4. List of Parts / Components (one per line)",
+key="parts"
+)
+
+functions_input = st.text_area(
+"5. Functions (one per line)",
+key="functions"
+)
+
+requirements_input = st.text_area(
+"6. Main Specs / Requirements (one per line)",
+key="requirements"
+)
+
+version = st.date_input(
+"7. Version / Date",
+key="version"
+)
+
+# ----------------------------
+# TEST COLUMNS
+# ----------------------------
+
 test_columns = [
-    "INVESTIGATION & TESTING","VENDOR - PART","DESIGN CHANGE","DIM & WORST CASE","SIMULATION","CHARACTERIZE",
-    "CPPP","DIAGNOSTICS","FUNCTIONALITY","OOBE & INSTALL","SYSTEM TEST","SIT E2E APP","HALT","ALT",
-    "ROBUSTNESS","REGS EMC","REGSSAFETY","USABILITY","SW-FW TESTS","MFG TESTS","MAINTENANCE","SERVICEABILITY"
+"INVESTIGATION & TESTING","VENDOR - PART","DESIGN CHANGE","DIM & WORST CASE",
+"SIMULATION","CHARACTERIZE","CPPP","DIAGNOSTICS","FUNCTIONALITY",
+"OOBE & INSTALL","SYSTEM TEST","SIT E2E APP","HALT","ALT","ROBUSTNESS",
+"REGS EMC","REGSSAFETY","USABILITY","SW-FW TESTS","MFG TESTS",
+"MAINTENANCE","SERVICEABILITY"
 ]
 
-# -----------------------------
-# COST MAPPING
-# -----------------------------
-cost_map = {"Very High":2,"High":1.5,"Medium":1,"Low":0.75}
+# ----------------------------
+# COST PARSER
+# ----------------------------
 
-# -----------------------------
-# SAFE COST PARSER
-# -----------------------------
-def parse_estimated_cost(x):
+def parse_cost(x):
+
     try:
-        if "(" in x:
+        if "(" in str(x):
             return float(x.split("(")[1].replace(")",""))
-        else:
-            return float(x)
+        return float(x)
+
     except:
         return 1
 
-# -----------------------------
-# SAFE JSON PARSER
-# -----------------------------
-def safe_json_parse(text):
-    first = text.find("[")
-    last = text.rfind("]")
-    if first != -1 and last != -1:
-        try:
+# ----------------------------
+# JSON SAFE PARSER
+# ----------------------------
+
+def safe_json(text):
+
+    try:
+        first = text.find("[")
+        last = text.rfind("]")
+
+        if first != -1 and last != -1:
             return json.loads(text[first:last+1])
-        except:
-            return []
+
+    except:
+        pass
+
     return []
 
-# -----------------------------
+# ----------------------------
 # FMEA GENERATION
-# -----------------------------
-def generate_fmea(description, object_name, parts_list, functions_text, requirements_text, subsystem):
-    functions = [f.strip() for f in functions_text.split("\n") if f.strip()]
-    requirements = [r.strip() for r in requirements_text.split("\n") if r.strip()]
-    parts = [p.strip() for p in parts_list.split("\n") if p.strip()]
-    rows = []
+# ----------------------------
 
-    # Step 0: Ask AI for missing essentials
-    prompt_supplement = f"""
-You are a senior reliability engineer reviewing a product for FMEA.
+def generate_fmea():
+
+    functions = [x.strip() for x in functions_input.split("\n") if x.strip()]
+    requirements = [x.strip() for x in requirements_input.split("\n") if x.strip()]
+    parts = [x.strip() for x in parts_input.split("\n") if x.strip()]
+
+    # ---------- AI CHECK FOR MISSING ITEMS ----------
+
+    supplement_prompt = f"""
+
+You are a senior reliability engineer.
+
 Product: {object_name}
-Description: {description}
-Subsystem: {subsystem}
+Description: {product_description}
 
-User-provided functions: {', '.join(functions) if functions else 'None'}
-User-provided requirements: {', '.join(requirements) if requirements else 'None'}
-User-provided parts: {', '.join(parts) if parts else 'None'}
+Existing functions: {functions}
+Existing requirements: {requirements}
+Existing parts: {parts}
 
-Determine if any essential function, requirement, or part is missing.
-Return JSON only:
-{{"additional_functions": [], "additional_requirements": [], "additional_parts": []}}
+Check if any **essential** functions, requirements or parts are missing.
+
+Return JSON:
+
+{{
+"additional_functions": [],
+"additional_requirements": [],
+"additional_parts": []
+}}
+
+If the list is already complete return empty arrays.
 """
+
     try:
-        response_supplement = client.chat.completions.create(
+
+        resp = client.chat.completions.create(
             model="gpt-4.1-mini",
-            messages=[{"role": "user","content": prompt_supplement}],
-            temperature=0.3
+            messages=[{"role":"user","content":supplement_prompt}],
+            temperature=0.2
         )
-        text_supp = response_supplement.choices[0].message.content.strip()
-        supplement_data = json.loads(text_supp[text_supp.find("{"):text_supp.rfind("}")+1])
+
+        text = resp.choices[0].message.content
+
+        data = json.loads(text[text.find("{"):text.rfind("}")+1])
+
+        functions += data.get("additional_functions",[])
+        requirements += data.get("additional_requirements",[])
+        parts += data.get("additional_parts",[])
+
     except:
-        supplement_data = {"additional_functions":[],"additional_requirements":[],"additional_parts":[]}
-
-    # Append AI-suggested essentials
-    functions += supplement_data.get("additional_functions", [])
-    requirements += supplement_data.get("additional_requirements", [])
-    parts += supplement_data.get("additional_parts", [])
-
-    functions = [f for f in functions if f]
-    requirements = [r for r in requirements if r]
+        pass
 
     if not functions or not requirements:
-        st.warning("No functions or requirements provided or generated by AI.")
+
+        st.warning("Enter at least one function and requirement")
         return pd.DataFrame()
 
-    # Step 1: Split functions into chunks for reliable AI generation
-    chunk_size = 5
-    function_chunks = [functions[i:i+chunk_size] for i in range(0,len(functions),chunk_size)]
+    # ---------- MAIN FMEA PROMPT ----------
 
-    # Step 2: Generate FMEA per chunk
-    for chunk in function_chunks:
-        prompt = f"""
-You are a senior reliability engineer performing FMEA for:
+    prompt = f"""
+
+You are a reliability engineer generating a professional FMEA.
 
 Product: {object_name}
-Description: {description}
+Description: {product_description}
 Subsystem: {subsystem}
-Parts: {', '.join(parts)}
 
-Functions: {', '.join(chunk)}
-Requirements: {', '.join(requirements)}
+Parts:
+{parts}
 
-Generate realistic failure modes for each function/requirement combination.
-Include:
-- Function
-- Requirement
-- Failure Scenario
-- Part
-- Failure Mode
-- End Effects
-- Causes (2-3)
-- Current Design Controls
-- Recommended Actions
-- Owner
-- Execution Phase
-- Severity (1-5)
-- Occurrence (1-4)
-- Detectability (1-3)
-- Estimated RPN2
-- Recommended tests (from {', '.join(test_columns)})
-- Estimated Cost
-- References
+Functions:
+{functions}
 
-Return ONLY a valid JSON list of failures.
+Requirements:
+{requirements}
+
+For EACH function AND EACH requirement generate **3-5 realistic failure scenarios**.
+
+Each scenario must include:
+
+Function
+Requirement
+Failure Scenario
+Part
+Failure Mode
+End Effects
+Causes (2-3)
+Controls
+Actions
+Owner
+Execution Phase
+Severity (1-5)
+Occurrence (1-4)
+Detectability (1-3)
+Estimated Cost (Low(0.75) / Medium(1) / High(1.5) / Very High(2))
+Tests from this list:
+{test_columns}
+References
+
+Return ONLY a JSON list.
 """
-        try:
-            with st.spinner(f"Generating FMEA for functions: {', '.join(chunk)}"):
-                response = client.chat.completions.create(
-                    model="gpt-4.1-mini",
-                    messages=[{"role": "user","content": prompt}],
-                    temperature=0.3
-                )
-            failures = safe_json_parse(response.choices[0].message.content)
-        except:
-            failures = []
 
-        for f in failures:
-            causes_list = f.get("Causes", [""])
-            for cause in causes_list:
-                S = min(max(int(f.get("Severity",3)),1),5)
-                O = min(max(int(f.get("Occurrence",2)),1),4)
-                D = min(max(int(f.get("Detectability",2)),1),3)
-                cost_text = f.get("Estimated Cost","Medium (1)")
-                cost_value = parse_estimated_cost(cost_text)
-                RPN = S*O*D
-                row = {
-                    "Failure Scenario": f.get("Failure Scenario",""),
-                    "Function": f.get("Function",""),
-                    "Requirement": f.get("Requirement",""),
-                    "Part": f.get("Part",""),
-                    "Failure Mode": f.get("Failure Mode",""),
-                    "End Effects of Failure": f.get("End Effects",""),
-                    "Causes": cause,
-                    "Current Design Controls": f.get("Controls",""),
-                    "Severity (S)": S,
-                    "Occurrence (O)": O,
-                    "Detectability (D)": D,
-                    "RPN": RPN,
-                    "Priority": RPN*cost_value,
-                    "Recommended Actions": ", ".join(f.get("Actions",[])),
-                    "Owner": f.get("Owner",""),
-                    "Execution Phase": f.get("Execution Phase",""),
-                    "Reference Links": ", ".join(f.get("References",[])),
-                    "RPN2 (Post-Action)": f.get("RPN2",""),
-                    "Estimated Cost": cost_text
-                }
-                for col in test_columns:
-                    row[col] = "X" if col in f.get("tests",[]) else ""
-                rows.append(row)
+    with st.spinner("AI generating FMEA..."):
+
+        response = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=[{"role":"user","content":prompt}],
+            temperature=0.3
+        )
+
+    failures = safe_json(response.choices[0].message.content)
+
+    rows = []
+
+    for f in failures:
+
+        causes = f.get("Causes",[""])
+
+        for cause in causes:
+
+            S = int(f.get("Severity",3))
+            O = int(f.get("Occurrence",2))
+            D = int(f.get("Detectability",2))
+
+            cost_text = f.get("Estimated Cost","Medium(1)")
+            cost_val = parse_cost(cost_text)
+
+            RPN = S*O*D
+
+            row = {
+
+            "Failure Scenario":f.get("Failure Scenario",""),
+            "Function":f.get("Function",""),
+            "Requirement":f.get("Requirement",""),
+            "Part":f.get("Part",""),
+            "Failure Mode":f.get("Failure Mode",""),
+            "End Effects of Failure":f.get("End Effects",""),
+            "Causes":cause,
+            "Current Design Controls":f.get("Controls",""),
+            "Severity (S)":S,
+            "Occurrence (O)":O,
+            "Detectability (D)":D,
+            "RPN":RPN,
+            "Priority":RPN*cost_val,
+            "Recommended Actions":",".join(f.get("Actions",[])),
+            "Owner":f.get("Owner",""),
+            "Execution Phase":f.get("Execution Phase",""),
+            "Reference Links":",".join(f.get("References",[])),
+            "Estimated Cost":cost_text
+            }
+
+            tests = f.get("tests",[])
+
+            for t in test_columns:
+
+                row[t] = "X" if t in tests else ""
+
+            rows.append(row)
 
     return pd.DataFrame(rows)
 
-# -----------------------------
+# ----------------------------
 # GENERATE BUTTON
-# -----------------------------
+# ----------------------------
+
 if st.button("Generate FMEA"):
-    df = generate_fmea(
-        product_description or "",
-        object_name or "",
-        parts_input or "",
-        functions_input or "",
-        main_specs or "",
-        subsystem or ""
-    )
+
+    df = generate_fmea()
+
     if not df.empty:
         st.session_state.df = df
 
-# -----------------------------
-# EDITABLE TABLE AND EXCEL EXPORT
-# -----------------------------
+# ----------------------------
+# TABLE + EXCEL
+# ----------------------------
+
 if "df" in st.session_state:
+
     st.subheader("Editable FMEA Table")
-    edited_df = st.data_editor(st.session_state.df, use_container_width=True)
-    # Update calculations
-    edited_df["RPN"] = edited_df["Severity (S)"]*edited_df["Occurrence (O)"]*edited_df["Detectability (D)"]
-    edited_df["Priority"] = edited_df["RPN"]*edited_df["Estimated Cost"].apply(parse_estimated_cost)
+
+    edited_df = st.data_editor(
+        st.session_state.df,
+        use_container_width=True
+    )
+
+    edited_df["RPN"] = (
+        edited_df["Severity (S)"]
+        * edited_df["Occurrence (O)"]
+        * edited_df["Detectability (D)"]
+    )
+
+    edited_df["Priority"] = edited_df["RPN"] * edited_df["Estimated Cost"].apply(parse_cost)
+
     st.session_state.df = edited_df
 
-    # Excel export
+    # ---------- EXCEL ----------
+
     wb = Workbook()
     ws = wb.active
     ws.title = "FMEA"
+
     headers = list(edited_df.columns)
     ws.append(headers)
+
     ws.row_dimensions[1].height = 60
-    default_width = 25
-    header_font_size = 12
-    for col_num, header in enumerate(headers,1):
-        cell = ws.cell(row=1,column=col_num)
-        cell.font = Font(bold=True,color="FFFFFF",size=header_font_size)
-        cell.fill = PatternFill(start_color="4F81BD",end_color="4F81BD",fill_type="solid")
-        cell.alignment = Alignment(horizontal="center",vertical="center")
-        ws.column_dimensions[cell.column_letter].width = default_width
-    fill1 = PatternFill(start_color="D9E1F2",end_color="D9E1F2",fill_type="solid")
-    fill2 = PatternFill(start_color="FFFFFF",end_color="FFFFFF",fill_type="solid")
-    for i,(_,row) in enumerate(edited_df.iterrows(),start=2):
-        for j,value in enumerate(row,start=1):
-            ws.cell(row=i,column=j,value=value)
-            ws.cell(row=i,column=j).alignment=Alignment(horizontal="center",vertical="center")
-            ws.cell(row=i,column=j).fill = fill1 if i%2==0 else fill2
+
+    for i,h in enumerate(headers,1):
+
+        c = ws.cell(1,i)
+
+        c.font = Font(bold=True,color="FFFFFF",size=12)
+
+        c.fill = PatternFill(
+            start_color="4F81BD",
+            end_color="4F81BD",
+            fill_type="solid"
+        )
+
+        c.alignment = Alignment(
+            horizontal="center",
+            vertical="center"
+        )
+
+        ws.column_dimensions[c.column_letter].width = 25
+
+    for r,row in enumerate(edited_df.values,2):
+
+        for c,val in enumerate(row,1):
+
+            ws.cell(r,c,val)
+
     output = BytesIO()
     wb.save(output)
+
     st.download_button(
-        "Download Excel File",
+        "Download Excel",
         output.getvalue(),
-        file_name=f"FMEA_{object_name}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        file_name=f"FMEA_{object_name}.xlsx"
     )
