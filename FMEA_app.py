@@ -22,7 +22,7 @@ for key in ["user_name","product_name","product_description","subsystem","parts"
         st.session_state[key] = datetime.date.today() if key=="version" else ""
 
 # -----------------------------
-# RESTRUCTURED INPUTS (PERSISTENT)
+# RESTRUCTURED INPUTS
 # -----------------------------
 st.subheader("Project Information")
 
@@ -74,12 +74,12 @@ cost_map = {
 }
 
 # -----------------------------
-# AI GENERATION FUNCTION WITH MISSING ITEM CHECK
+# FMEA GENERATION (BATCHED)
 # -----------------------------
-def generate_fmea(description, object_name, parts_list, functions_text, main_specs_text, subsystem):
-    # User-provided lists
-    functions = [r.strip() for r in functions_text.split("\n") if r.strip()]
-    requirements = [r.strip() for r in main_specs_text.split("\n") if r.strip()]
+def generate_fmea(description, object_name, parts_list, functions_text, requirements_text, subsystem):
+    # Prepare lists
+    functions = [f.strip() for f in functions_text.split("\n") if f.strip()]
+    requirements = [r.strip() for r in requirements_text.split("\n") if r.strip()]
     parts = [p.strip() for p in parts_list.split("\n") if p.strip()]
     rows = []
 
@@ -96,16 +96,9 @@ User-provided functions: {', '.join(functions) if functions else 'None'}
 User-provided requirements: {', '.join(requirements) if requirements else 'None'}
 User-provided parts: {', '.join(parts) if parts else 'None'}
 
-Review the provided lists and determine if any **essential function, requirement, or part** is missing.
-Only return JSON with keys "additional_functions", "additional_requirements", "additional_parts".
-If nothing is missing, return empty lists.
-Return **strict JSON only**, nothing else.
-Example:
-{{
-"additional_functions": [],
-"additional_requirements": [],
-"additional_parts": []
-}}
+Review the provided lists and determine if any essential function, requirement, or part is missing.
+Return JSON only:
+{{"additional_functions": [], "additional_requirements": [], "additional_parts": []}}
 """
     try:
         response_supplement = client.chat.completions.create(
@@ -120,30 +113,38 @@ Example:
             text_supp = text_supp[first:last+1]
         supplement_data = json.loads(text_supp)
     except:
-        # Fail silently: if AI fails, just use user inputs
         supplement_data = {"additional_functions": [], "additional_requirements": [], "additional_parts": []}
 
-    # Append AI-suggested items only if any
+    # Append AI-suggested essentials
     functions += supplement_data.get("additional_functions", [])
     requirements += supplement_data.get("additional_requirements", [])
     parts += supplement_data.get("additional_parts", [])
 
     # ---------------------------
-    # Step 1: Generate FMEA rows for all functions/requirements
+    # Safety check
     # ---------------------------
-    for func in functions:
-        for req in requirements:
-            prompt = f"""
-You are a senior reliability engineer performing FMEA for:
+    if not functions or not requirements:
+        return pd.DataFrame()
+
+    # ---------------------------
+    # Step 1: Batch AI call for all functions and requirements
+    # ---------------------------
+    prompt_batch = f"""
+You are a senior reliability engineer performing FMEA for the following product:
 
 Product: {object_name}
 Description: {description}
 Subsystem: {subsystem}
-Function: {func}
-Requirement: {req}
 Parts: {', '.join(parts)}
 
-Generate realistic failure modes, filling all test columns. Include:
+Generate realistic failure modes for all combinations of these functions and requirements:
+
+Functions: {', '.join(functions)}
+Requirements: {', '.join(requirements)}
+
+Include for each failure:
+- Function
+- Requirement
 - Failure Scenario
 - Part
 - Failure Mode
@@ -157,63 +158,64 @@ Generate realistic failure modes, filling all test columns. Include:
 - Occurrence (1-4)
 - Detectability (1-3)
 - Estimated RPN2
-- Recommended tests
+- Recommended tests (from {', '.join(test_columns)})
 - Estimated Cost
 - References
 
-Return only valid JSON.
+Return **ONLY valid JSON**: a list of failures.
 """
+    try:
+        with st.spinner("Generating FMEA for all functions and requirements..."):
+            response = client.chat.completions.create(
+                model="gpt-4.1-mini",
+                messages=[{"role": "user", "content": prompt_batch}],
+                temperature=0.3
+            )
+        text = response.choices[0].message.content
+        failures = json.loads(text)
+    except:
+        failures = []
+
+    # ---------------------------
+    # Process failures
+    # ---------------------------
+    for f in failures:
+        causes_list = f.get("Causes", [""])
+        for cause in causes_list:
+            S = min(max(int(f.get("Severity", 3)), 1), 5)
+            O = min(max(int(f.get("Occurrence", 2)), 1), 4)
+            D = min(max(int(f.get("Detectability", 2)), 1), 3)
+            cost_text = f.get("Estimated Cost", "Medium (1)")
             try:
-                with st.spinner(f"Generating FMEA for {func} / {req}..."):
-                    response = client.chat.completions.create(
-                        model="gpt-4.1-mini",
-                        messages=[{"role": "user", "content": prompt}],
-                        temperature=0.3
-                    )
-                text = response.choices[0].message.content
-                failures = json.loads(text)
+                cost_value = float(cost_text.split("(")[1].replace(")", ""))
             except:
-                # Fail silently and continue
-                failures = []
+                cost_value = 1
+            RPN = S * O * D
 
-            # Process failures into table
-            for f in failures:
-                causes_list = f.get("Causes", [""])
-                for cause in causes_list:
-                    S = min(max(int(f.get("Severity", 3)), 1), 5)
-                    O = min(max(int(f.get("Occurrence", 2)), 1), 4)
-                    D = min(max(int(f.get("Detectability", 2)), 1), 3)
-                    cost_text = f.get("Estimated Cost", "Medium (1)")
-                    try:
-                        cost_value = float(cost_text.split("(")[1].replace(")", ""))
-                    except:
-                        cost_value = 1
-                    RPN = S * O * D
-
-                    row = {
-                        "Failure Scenario": f.get("Failure Scenario", ""),
-                        "Function": func,
-                        "Requirement": req,
-                        "Part": f.get("Part", ""),
-                        "Failure Mode": f.get("Failure Mode", ""),
-                        "End Effects of Failure": f.get("End Effects", ""),
-                        "Causes": cause,
-                        "Current Design Controls": f.get("Controls", ""),
-                        "Severity (S)": S,
-                        "Occurrence (O)": O,
-                        "Detectability (D)": D,
-                        "RPN": RPN,
-                        "Priority": RPN * cost_value,
-                        "Recommended Actions": ", ".join(f.get("Actions", [])),
-                        "Owner": f.get("Owner", ""),
-                        "Execution Phase": f.get("Execution Phase", ""),
-                        "Reference Links": ", ".join(f.get("References", [])),
-                        "RPN2 (Post-Action)": f.get("RPN2", ""),
-                        "Estimated Cost": cost_text
-                    }
-                    for col in test_columns:
-                        row[col] = "X" if col in f.get("tests", []) else ""
-                    rows.append(row)
+            row = {
+                "Failure Scenario": f.get("Failure Scenario", ""),
+                "Function": f.get("Function", ""),
+                "Requirement": f.get("Requirement", ""),
+                "Part": f.get("Part", ""),
+                "Failure Mode": f.get("Failure Mode", ""),
+                "End Effects of Failure": f.get("End Effects", ""),
+                "Causes": cause,
+                "Current Design Controls": f.get("Controls", ""),
+                "Severity (S)": S,
+                "Occurrence (O)": O,
+                "Detectability (D)": D,
+                "RPN": RPN,
+                "Priority": RPN * cost_value,
+                "Recommended Actions": ", ".join(f.get("Actions", [])),
+                "Owner": f.get("Owner", ""),
+                "Execution Phase": f.get("Execution Phase", ""),
+                "Reference Links": ", ".join(f.get("References", [])),
+                "RPN2 (Post-Action)": f.get("RPN2", ""),
+                "Estimated Cost": cost_text
+            }
+            for col in test_columns:
+                row[col] = "X" if col in f.get("tests", []) else ""
+            rows.append(row)
 
     return pd.DataFrame(rows)
 
@@ -221,21 +223,18 @@ Return only valid JSON.
 # GENERATE BUTTON
 # -----------------------------
 if st.button("Generate FMEA"):
-    if object_name.strip() == "":
-        st.warning("Enter Product / Prototype Name")
+    df = generate_fmea(
+        product_description or "",
+        object_name or "",
+        parts_input or "",
+        functions_input or "",
+        main_specs or "",
+        subsystem or ""
+    )
+    if df.empty:
+        st.warning("Enter at least one function and requirement")
     else:
-        df = generate_fmea(
-            product_description or "",
-            object_name or "",
-            parts_input or "",
-            functions_input or "",
-            main_specs or "",
-            subsystem or ""
-        )
-        if df.empty:
-            st.warning("Enter at least one function and requirement")
-        else:
-            st.session_state.df = df
+        st.session_state.df = df
 
 # -----------------------------
 # EDITABLE TABLE AND EXCEL EXPORT
