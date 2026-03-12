@@ -14,18 +14,18 @@ client = OpenAI(api_key=st.secrets["openai"]["api_key"])
 st.title("AI-Assisted FMEA Generator – Powered by GPT-4.1-mini")
 
 # -----------------------------
-# RESTRUCTURED INPUTS
+# RESTRUCTURED INPUTS (PERSISTENT)
 # -----------------------------
 st.subheader("Project Information")
 
-user_name = st.text_input("1. User Name")
-object_name = st.text_input("2. Product / Prototype Name")
-product_description = st.text_area("Product Description")  # <-- added to fix NameError
-subsystem = st.text_input("3. Subsystem to perform FMEA")
-parts_input = st.text_area("4. List of Parts / Components (one per line)")
-functions_input = st.text_area("5. Functions (one per line)")
-main_specs = st.text_area("6. Main Specs / Requirements (one per line)")
-version = st.date_input("7. Version / Date")
+user_name = st.text_input("1. User Name", key="user_name")
+object_name = st.text_input("2. Product / Prototype Name", key="product_name")
+product_description = st.text_area("Product Description", key="product_description")
+subsystem = st.text_input("3. Subsystem to perform FMEA", key="subsystem")
+parts_input = st.text_area("4. List of Parts / Components (one per line)", key="parts")
+functions_input = st.text_area("5. Functions (one per line)", key="functions")
+main_specs = st.text_area("6. Main Specs / Requirements (one per line)", key="requirements")
+version = st.date_input("7. Version / Date", key="version")
 
 # -----------------------------
 # TEST MATRIX
@@ -189,14 +189,13 @@ if st.button("Generate FMEA"):
     if object_name.strip() == "":
         st.warning("Enter Product / Prototype Name")
     else:
-        # Safe default for all inputs
-        product_description_text = product_description or ""
-        parts_text = parts_input or ""
-        functions_text = functions_input or ""
-        specs_text = main_specs or ""
-
-        df = generate_fmea(product_description_text, object_name, parts_text, functions_text, specs_text)
-
+        df = generate_fmea(
+            product_description or "",
+            object_name or "",
+            parts_input or "",
+            functions_input or "",
+            main_specs or ""
+        )
         if df.empty:
             st.warning("Enter at least one function and requirement")
         else:
@@ -259,3 +258,18 @@ if "df" in st.session_state:
         file_name=f"FMEA_{object_name}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
+
+# -----------------------------
+# OPTIONAL: CLEAR ALL INPUTS BUTTON
+# -----------------------------
+if st.button("Clear All Inputs"):
+    for key in [
+        "user_name",
+        "product_name",
+        "product_description",
+        "subsystem",
+        "parts",
+        "functions",
+        "requirements"
+    ]:
+        st.session_state[key] = ""
