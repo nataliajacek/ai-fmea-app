@@ -15,11 +15,10 @@ client = OpenAI(api_key=st.secrets["openai"]["api_key"])
 st.title("AI-Assisted FMEA Generator – Powered by GPT-4.1-mini")
 
 # -----------------------------
-# INITIALIZE SESSION STATE
+# INITIALIZE SESSION STATE SAFELY
 # -----------------------------
 for key in ["user_name","product_name","product_description","subsystem","parts","functions","requirements","version"]:
     if key not in st.session_state:
-        # For date input, set default today
         st.session_state[key] = datetime.date.today() if key=="version" else ""
 
 # -----------------------------
@@ -272,10 +271,8 @@ if "df" in st.session_state:
 # SAFE CLEAR ALL INPUTS BUTTON
 # -----------------------------
 if st.button("Clear All Inputs"):
-    keys = ["user_name","product_name","product_description","subsystem","parts","functions","requirements"]
-    for key in keys:
-        if key in st.session_state:
-            st.session_state[key] = ""
+    # Clear text inputs
+    for key in ["user_name","product_name","product_description","subsystem","parts","functions","requirements"]:
+        st.session_state[key] = ""
     # Reset date input safely
-    if "version" in st.session_state:
-        st.session_state["version"] = datetime.date.today()
+    st.session_state["version"] = datetime.date.today()
