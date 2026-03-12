@@ -6,6 +6,8 @@ from openpyxl.styles import Font, PatternFill, Alignment
 from openai import OpenAI
 import json
 import datetime
+import base64
+import pdfplumber
 
 client = OpenAI(api_key=st.secrets["openai"]["api_key"])
 
@@ -30,45 +32,74 @@ product_name = st.text_input("2. Product / Prototype Name", key="product_name")
 product_description = st.text_area("Product Description", key="product_description")
 subsystem = st.text_input("3. Subsystem to perform FMEA", key="subsystem")
 
-parts_input = st.text_area(
-"4. List of Parts / Components (one per line)",
-key="parts"
-)
+parts_input = st.text_area("4. List of Parts / Components (one per line)", key="parts")
 
-functions_input = st.text_area(
-"5. Functions (one per line)",
-key="functions"
-)
+functions_input = st.text_area("5. Functions (one per line)", key="functions")
 
-requirements_input = st.text_area(
-"6. Main Specs / Requirements (one per line)",
-key="requirements"
-)
+requirements_input = st.text_area("6. Main Specs / Requirements (one per line)", key="requirements")
 
 version = st.date_input("7. Version / Date", key="version")
 
 # -------------------
-# Test columns
+# NEW: File Upload Section
 # -------------------
 
-test_columns = [
-"INVESTIGATION & TESTING","VENDOR - PART","DESIGN CHANGE","DIM & WORST CASE",
-"SIMULATION","CHARACTERIZE","CPPP","DIAGNOSTICS","FUNCTIONALITY",
-"OOBE & INSTALL","SYSTEM TEST","SIT E2E APP","HALT","ALT",
-"ROBUSTNESS","REGS EMC","REGSSAFETY","USABILITY",
-"SW-FW TESTS","MFG TESTS","MAINTENANCE","SERVICEABILITY"
-]
+st.subheader("Additional Context (Optional)")
+
+uploaded_files = st.file_uploader(
+    "Upload diagrams, photos, datasheets or specifications",
+    accept_multiple_files=True,
+    type=["png","jpg","jpeg","pdf","txt"]
+)
+
+# -------------------
+# Extract text from uploaded files
+# -------------------
+
+def extract_file_context(files):
+
+    context = ""
+
+    for file in files:
+
+        if file.type == "application/pdf":
+
+            with pdfplumber.open(file) as pdf:
+
+                for page in pdf.pages:
+
+                    text = page.extract_text()
+
+                    if text:
+                        context += text + "\n"
+
+        elif file.type == "text/plain":
+
+            context += file.read().decode("utf-8")
+
+        elif file.type.startswith("image"):
+
+            image_bytes = file.read()
+            base64_image = base64.b64encode(image_bytes).decode()
+
+            context += f"\n[Image uploaded: {file.name}]\n"
+
+    return context
 
 # -------------------
 # Cost parser
 # -------------------
 
 def parse_cost(x):
+
     try:
         x = str(x)
+
         if "(" in x:
             return float(x.split("(")[1].replace(")",""))
+
         return float(x)
+
     except:
         return 1
 
@@ -77,20 +108,26 @@ def parse_cost(x):
 # -------------------
 
 def safe_json(text):
+
     try:
+
         start = text.find("[")
         end = text.rfind("]")
+
         if start != -1 and end != -1:
+
             return json.loads(text[start:end+1])
+
     except:
         pass
+
     return []
 
 # -------------------
-# AI: Add missing essentials
+# Add missing essentials
 # -------------------
 
-def ai_add_missing(functions, requirements, parts):
+def ai_add_missing(functions, requirements, parts, file_context):
 
     prompt = f"""
 Product: {product_name}
@@ -99,6 +136,9 @@ Description: {product_description}
 Existing functions: {functions}
 Existing requirements: {requirements}
 Existing parts: {parts}
+
+Additional information from uploaded files:
+{file_context}
 
 If important functions, requirements, or parts are missing,
 add them.
@@ -121,6 +161,7 @@ Return JSON:
         )
 
         text = r.choices[0].message.content
+
         data = json.loads(text[text.find("{"):text.rfind("}")+1])
 
         functions += data.get("additional_functions",[])
@@ -142,10 +183,22 @@ def generate_fmea():
     requirements = [r.strip() for r in requirements_input.split("\n") if r.strip()]
     parts = [p.strip() for p in parts_input.split("\n") if p.strip()]
 
-    functions, requirements, parts = ai_add_missing(functions, requirements, parts)
+    file_context = ""
+
+    if uploaded_files:
+        file_context = extract_file_context(uploaded_files)
+
+    functions, requirements, parts = ai_add_missing(
+        functions,
+        requirements,
+        parts,
+        file_context
+    )
 
     if not functions or not requirements:
+
         st.warning("Enter at least one function and requirement")
+
         return pd.DataFrame()
 
     rows = []
@@ -153,7 +206,6 @@ def generate_fmea():
     for function in functions:
 
         prompt = f"""
-
 Product: {product_name}
 Description: {product_description}
 Subsystem: {subsystem}
@@ -165,30 +217,29 @@ Function: {function}
 Requirements:
 {requirements}
 
-For EACH requirement generate **3-5 failure scenarios**.
+Additional information from files:
+{file_context}
 
-Include:
+For EACH requirement generate 3-5 failure scenarios.
 
-Function
-Requirement
+Return JSON list including:
+
 Failure Scenario
+Requirement
 Part
 Failure Mode
 End Effects
-Causes (2-3)
+Causes
 Controls
 Actions
 Owner
 Execution Phase
-Severity (1-5)
-Occurrence (1-4)
-Detectability (1-3)
-Estimated Cost (Low(0.75) Medium(1) High(1.5) Very High(2))
-Tests from this list:
-{test_columns}
+Severity
+Occurrence
+Detectability
+Estimated Cost
+tests
 References
-
-Return ONLY JSON list.
 """
 
         with st.spinner(f"Analyzing function: {function}"):
@@ -237,11 +288,6 @@ Return ONLY JSON list.
                 "Estimated Cost":cost_text
                 }
 
-                tests = f.get("tests",[])
-
-                for t in test_columns:
-                    row[t] = "X" if t in tests else ""
-
                 rows.append(row)
 
     return pd.DataFrame(rows)
@@ -280,37 +326,12 @@ if "df" in st.session_state:
 
     st.session_state.df = edited_df
 
-    # -------------------
-    # Excel Export
-    # -------------------
-
     wb = Workbook()
     ws = wb.active
     ws.title = "FMEA"
 
     headers = list(edited_df.columns)
     ws.append(headers)
-
-    ws.row_dimensions[1].height = 60
-
-    for i,h in enumerate(headers,1):
-
-        c = ws.cell(1,i)
-
-        c.font = Font(bold=True,color="FFFFFF",size=12)
-
-        c.fill = PatternFill(
-            start_color="4F81BD",
-            end_color="4F81BD",
-            fill_type="solid"
-        )
-
-        c.alignment = Alignment(
-            horizontal="center",
-            vertical="center"
-        )
-
-        ws.column_dimensions[c.column_letter].width = 25
 
     for r,row in enumerate(edited_df.values,2):
 
