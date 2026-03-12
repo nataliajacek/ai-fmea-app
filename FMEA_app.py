@@ -74,7 +74,7 @@ cost_map = {
 }
 
 # -----------------------------
-# AI GENERATION FUNCTION WITH MISSING ITEM SUGGESTION
+# AI GENERATION FUNCTION WITH MISSING ITEM CHECK
 # -----------------------------
 def generate_fmea(description, object_name, parts_list, functions_text, main_specs_text, subsystem):
     # User-provided lists
@@ -84,7 +84,7 @@ def generate_fmea(description, object_name, parts_list, functions_text, main_spe
     rows = []
 
     # ---------------------------
-    # Step 0: Ask AI for missing items
+    # Step 0: Ask AI if anything essential is missing
     # ---------------------------
     prompt_supplement = f"""
 You are a senior reliability engineer reviewing a product for FMEA.
@@ -96,13 +96,15 @@ User-provided functions: {', '.join(functions) if functions else 'None'}
 User-provided requirements: {', '.join(requirements) if requirements else 'None'}
 User-provided parts: {', '.join(parts) if parts else 'None'}
 
-Please suggest any critical functions, requirements, or parts that are missing and should be included for a complete FMEA.
-Return ONLY valid JSON, nothing else.
-Format:
+Review the provided lists and determine if any **essential function, requirement, or part** is missing.
+Only return JSON with keys "additional_functions", "additional_requirements", "additional_parts".
+If nothing is missing, return empty lists.
+Return **strict JSON only**, nothing else.
+Example:
 {{
-"additional_functions": ["function1", "function2"],
-"additional_requirements": ["requirement1", "requirement2"],
-"additional_parts": ["part1", "part2"]
+"additional_functions": [],
+"additional_requirements": [],
+"additional_parts": []
 }}
 """
     try:
@@ -112,19 +114,16 @@ Format:
             temperature=0.3
         )
         text_supp = response_supplement.choices[0].message.content.strip()
-
-        # Strip anything outside the first { ... } block
         first = text_supp.find("{")
         last = text_supp.rfind("}")
         if first != -1 and last != -1:
             text_supp = text_supp[first:last+1]
-
         supplement_data = json.loads(text_supp)
-    except Exception as e:
-        st.warning(f"Could not get AI suggestions for missing items. Using only user inputs. Error: {e}")
+    except:
+        # Fail silently: if AI fails, just use user inputs
         supplement_data = {"additional_functions": [], "additional_requirements": [], "additional_parts": []}
 
-    # Append AI-suggested items
+    # Append AI-suggested items only if any
     functions += supplement_data.get("additional_functions", [])
     requirements += supplement_data.get("additional_requirements", [])
     parts += supplement_data.get("additional_parts", [])
@@ -173,9 +172,9 @@ Return only valid JSON.
                     )
                 text = response.choices[0].message.content
                 failures = json.loads(text)
-            except Exception as e:
-                st.error(f"AI failed for {func} / {req}: {e}")
-                continue
+            except:
+                # Fail silently and continue
+                failures = []
 
             # Process failures into table
             for f in failures:
@@ -185,7 +184,10 @@ Return only valid JSON.
                     O = min(max(int(f.get("Occurrence", 2)), 1), 4)
                     D = min(max(int(f.get("Detectability", 2)), 1), 3)
                     cost_text = f.get("Estimated Cost", "Medium (1)")
-                    cost_value = float(cost_text.split("(")[1].replace(")", ""))
+                    try:
+                        cost_value = float(cost_text.split("(")[1].replace(")", ""))
+                    except:
+                        cost_value = 1
                     RPN = S * O * D
 
                     row = {
@@ -252,7 +254,7 @@ if "df" in st.session_state:
     st.session_state.df = edited_df
 
     # -----------------------------
-    # EXCEL EXPORT WITH HORIZONTAL HEADERS
+    # EXCEL EXPORT
     # -----------------------------
     wb = Workbook()
     ws = wb.active
