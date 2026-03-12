@@ -329,7 +329,13 @@ if "df" in st.session_state:
 
         for c,val in enumerate(row,1):
 
-            ws.cell(r,c,val)
+            if isinstance(val, list):
+                val = ", ".join(str(v) for v in val)
+
+            if val is None:
+                val = ""
+
+            ws.cell(row=r, column=c, value=str(val))
 
     output = BytesIO()
     wb.save(output)
@@ -339,3 +345,4 @@ if "df" in st.session_state:
         output.getvalue(),
         file_name=f"FMEA_{object_name}.xlsx"
     )
+
