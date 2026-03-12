@@ -15,7 +15,7 @@ client = OpenAI(api_key=st.secrets["openai"]["api_key"])
 st.title("AI-Assisted FMEA Generator – Powered by GPT-4.1-mini")
 
 # -----------------------------
-# INITIALIZE SESSION STATE SAFELY
+# INITIALIZE SESSION STATE
 # -----------------------------
 for key in ["user_name","product_name","product_description","subsystem","parts","functions","requirements","version"]:
     if key not in st.session_state:
@@ -132,7 +132,7 @@ Return only valid JSON in this format:
 "Detectability": 2,
 "RPN2": 12,
 "tests": ["HALT","ROBUSTNESS"],
-"Estimated Cost": "High (1.5)",
+"Estimated Cost": "Medium (1)",
 "References": ["link"]
 }}
 ]
@@ -271,8 +271,16 @@ if "df" in st.session_state:
 # SAFE CLEAR ALL INPUTS BUTTON
 # -----------------------------
 if st.button("Clear All Inputs"):
-    # Clear text inputs
-    for key in ["user_name","product_name","product_description","subsystem","parts","functions","requirements"]:
-        st.session_state[key] = ""
-    # Reset date input safely
-    st.session_state["version"] = datetime.date.today()
+    default_values = {
+        "user_name": "",
+        "product_name": "",
+        "product_description": "",
+        "subsystem": "",
+        "parts": "",
+        "functions": "",
+        "requirements": "",
+        "version": datetime.date.today()
+    }
+    for key, default in default_values.items():
+        if key in st.session_state:
+            st.session_state[key] = default
