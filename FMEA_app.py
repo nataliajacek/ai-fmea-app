@@ -50,7 +50,19 @@ test_columns = [
 cost_map = {"Very High":2,"High":1.5,"Medium":1,"Low":0.75}
 
 # -----------------------------
-# UTILITY: parse JSON safely
+# SAFE COST PARSER
+# -----------------------------
+def parse_estimated_cost(x):
+    try:
+        if "(" in x:
+            return float(x.split("(")[1].replace(")",""))
+        else:
+            return float(x)
+    except:
+        return 1
+
+# -----------------------------
+# SAFE JSON PARSER
 # -----------------------------
 def safe_json_parse(text):
     first = text.find("[")
@@ -63,7 +75,7 @@ def safe_json_parse(text):
     return []
 
 # -----------------------------
-# FMEA GENERATION WITH SMART BATCHING
+# FMEA GENERATION
 # -----------------------------
 def generate_fmea(description, object_name, parts_list, functions_text, requirements_text, subsystem):
     functions = [f.strip() for f in functions_text.split("\n") if f.strip()]
@@ -167,10 +179,7 @@ Return ONLY a valid JSON list of failures.
                 O = min(max(int(f.get("Occurrence",2)),1),4)
                 D = min(max(int(f.get("Detectability",2)),1),3)
                 cost_text = f.get("Estimated Cost","Medium (1)")
-                try:
-                    cost_value = float(cost_text.split("(")[1].replace(")",""))
-                except:
-                    cost_value = 1
+                cost_value = parse_estimated_cost(cost_text)
                 RPN = S*O*D
                 row = {
                     "Failure Scenario": f.get("Failure Scenario",""),
@@ -222,7 +231,7 @@ if "df" in st.session_state:
     edited_df = st.data_editor(st.session_state.df, use_container_width=True)
     # Update calculations
     edited_df["RPN"] = edited_df["Severity (S)"]*edited_df["Occurrence (O)"]*edited_df["Detectability (D)"]
-    edited_df["Priority"] = edited_df["RPN"]*edited_df["Estimated Cost"].apply(lambda x: float(x.split("(")[1].replace(")","")))
+    edited_df["Priority"] = edited_df["RPN"]*edited_df["Estimated Cost"].apply(parse_estimated_cost)
     st.session_state.df = edited_df
 
     # Excel export
