@@ -14,6 +14,13 @@ client = OpenAI(api_key=st.secrets["openai"]["api_key"])
 st.title("AI-Assisted FMEA Generator – Powered by GPT-4.1-mini")
 
 # -----------------------------
+# INITIALIZE SESSION STATE
+# -----------------------------
+for key in ["user_name","product_name","product_description","subsystem","parts","functions","requirements","version"]:
+    if key not in st.session_state:
+        st.session_state[key] = ""  # date will still render properly
+
+# -----------------------------
 # RESTRUCTURED INPUTS (PERSISTENT)
 # -----------------------------
 st.subheader("Project Information")
@@ -260,16 +267,10 @@ if "df" in st.session_state:
     )
 
 # -----------------------------
-# OPTIONAL: CLEAR ALL INPUTS BUTTON
+# SAFE CLEAR ALL INPUTS BUTTON
 # -----------------------------
 if st.button("Clear All Inputs"):
-    for key in [
-        "user_name",
-        "product_name",
-        "product_description",
-        "subsystem",
-        "parts",
-        "functions",
-        "requirements"
-    ]:
-        st.session_state[key] = ""
+    keys = ["user_name","product_name","product_description","subsystem","parts","functions","requirements","version"]
+    for key in keys:
+        if key in st.session_state:
+            st.session_state[key] = ""
