@@ -266,21 +266,3 @@ if "df" in st.session_state:
         file_name=f"FMEA_{object_name}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
-
-# -----------------------------
-# SAFE CLEAR ALL INPUTS BUTTON
-# -----------------------------
-if st.button("Clear All Inputs"):
-    default_values = {
-        "user_name": "",
-        "product_name": "",
-        "product_description": "",
-        "subsystem": "",
-        "parts": "",
-        "functions": "",
-        "requirements": "",
-        "version": datetime.date.today()
-    }
-    for key, default in default_values.items():
-        if key in st.session_state:
-            st.session_state[key] = default
