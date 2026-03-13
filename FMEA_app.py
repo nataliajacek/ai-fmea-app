@@ -165,30 +165,40 @@ Function: {function}
 Requirements:
 {requirements}
 
-For EACH requirement generate **3-5 failure scenarios**.
+For EACH requirement generate 3-5 failure scenarios.
 
-Include:
+Return ONLY a JSON list using this structure:
 
-Function
-Requirement
-Failure Scenario
-Part
-Failure Mode
-End Effects
-Causes (2-3)
-Controls
-Actions
-Owner
-Execution Phase
-Severity (1-5)
-Occurrence (1-4)
-Detectability (1-3)
-Estimated Cost (Low(0.75) Medium(1) High(1.5) Very High(2))
-Tests from this list:
+[
+{{
+"Requirement": "",
+"Failure Scenario": "",
+"Part": "",
+"Failure Mode": "",
+"End Effects": "",
+"Causes": ["",""],
+"Controls": "",
+"Actions": ["",""],
+"Owner": "",
+"Execution Phase": "",
+"Severity": 1,
+"Occurrence": 1,
+"Detectability": 1,
+"Estimated Cost": "Medium(1)",
+"tests": [],
+"References": [""]
+}}
+]
+
+Rules:
+
+- tests must be selected from this list:
 {test_columns}
-References
 
-Return ONLY JSON list.
+- References MUST include at least one engineering reference
+(example: ISO standard, IEC standard, datasheet, technical guideline)
+
+Return ONLY JSON.
 """
 
         with st.spinner(f"Analyzing function: {function}"):
@@ -205,20 +215,15 @@ Return ONLY JSON list.
 
             causes = f.get("Causes",[""])
 
-            # FIX: flexible test parsing
             tests = (
                 f.get("tests")
                 or f.get("Tests")
-                or f.get("test_columns")
-                or f.get("Testing")
                 or []
             )
 
-            # FIX: flexible reference parsing
             refs = (
                 f.get("References")
                 or f.get("Reference")
-                or f.get("Links")
                 or []
             )
 
