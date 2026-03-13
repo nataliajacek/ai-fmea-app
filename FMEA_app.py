@@ -205,6 +205,26 @@ Return ONLY JSON list.
 
             causes = f.get("Causes",[""])
 
+            # FIX: flexible test parsing
+            tests = (
+                f.get("tests")
+                or f.get("Tests")
+                or f.get("test_columns")
+                or f.get("Testing")
+                or []
+            )
+
+            # FIX: flexible reference parsing
+            refs = (
+                f.get("References")
+                or f.get("Reference")
+                or f.get("Links")
+                or []
+            )
+
+            if isinstance(refs,str):
+                refs=[refs]
+
             for cause in causes:
 
                 S = int(f.get("Severity",3))
@@ -217,6 +237,7 @@ Return ONLY JSON list.
                 rpn = S*O*D
 
                 row = {
+
                 "Failure Scenario":f.get("Failure Scenario",""),
                 "Function":function,
                 "Requirement":f.get("Requirement",""),
@@ -233,11 +254,9 @@ Return ONLY JSON list.
                 "Recommended Actions":",".join(f.get("Actions",[])),
                 "Owner":f.get("Owner",""),
                 "Execution Phase":f.get("Execution Phase",""),
-                "Reference Links":",".join(f.get("References",[])),
+                "Reference Links":",".join(refs),
                 "Estimated Cost":cost_text
                 }
-
-                tests = f.get("tests",[])
 
                 for t in test_columns:
                     row[t] = "X" if t in tests else ""
